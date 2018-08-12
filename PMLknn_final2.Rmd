@@ -1,0 +1,131 @@
+---
+title: "Prediction of Exercise Manner"
+author: "Duo Sun"
+date: "12 August 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, collapse = FALSE)
+```
+
+## 1 Introduction
+
+This goal of this study is to predict the manner (noted as A, B, C, D, E in the dataset) in which 6 participants did the exercise. 
+
+The features used as predictors for this purpose include x-,y-,z-accelerometers on the belt, forearm, arm, and dumbell. Three models including LDA,  CART, and kNN are built, and repeated cross-validation method is used to evaluate the performance and select the optimal parameters for each model. 
+
+Among the built models, kNN gave the best performanc with an average prediction accuracy of 89.6%. The performance of the kNN model is further evaluated on validation data, which gave a prediction accuracy of 91.5%.
+
+## 2 Load data
+
+The dataset "pml-training.csv" containing 19622 observations with 160 variables are used for training and validating models. Among these 159 variable, 12 features that are believed to be directly related with exercise manner including x-,y-,z-accelerometers on the belt, forearm, arm, and dumbell of 6 participants are selected to predict the manner of the exercise.
+```{r, results='hide', echo=FALSE}
+load("PML_final.RData")
+```
+
+```{r}
+# Load libraries
+library(caret)
+library(ggplot2)
+library(lattice)
+library(corrplot)
+
+# Load dataset
+pmldata <- read.csv("pml-training.csv",header = TRUE)
+
+# Remove variables containing NA
+pmldata <- pmldata[,colSums(is.na(pmldata))==0]
+
+# Extract features including accelerometers x,y,z on the belt, forearm, arm, and dumbell of 6 participants.  
+var <- c("accel_belt_x","accel_belt_y","accel_belt_z",
+         "accel_arm_x","accel_arm_y","accel_arm_z",
+         "accel_dumbbell_x","accel_dumbbell_y","accel_dumbbell_z",
+         "accel_forearm_x","accel_forearm_y","accel_forearm_z",
+         "classe")
+dataset <- pmldata[,var]
+```
+
+## 3 Split the data into training/testing dataset and validation dataset
+
+The dataset are split into two part: 80% dataset is used for training models and estimating their prediction accuracy; 20% dataset is used to evaluate the built model. The distributions of different manners in training dataset and validation dataset are shown below and are very well matched.
+
+```{r}
+set.seed(0)
+inTrainTest  <- createDataPartition(y=dataset$classe,p=0.80,list=FALSE)
+validation   <- dataset[-inTrainTest,]
+dataset      <- dataset[inTrainTest,]
+dim(dataset)
+cbind(freq=table(dataset$classe), percentage=prop.table(table(dataset$classe)) * 100)
+dim(validation)
+cbind(freq=table(validation$classe), percentage=prop.table(table(validation$classe)) * 100)
+```
+
+## 4 Data summary and visualization
+
+The follow figures show range of each selected variable under different manner, and the correlation between variables, respectively.
+
+```{r, fig.width = 7, fig.height = 7}
+# Summarize data
+dim(dataset)
+str(dataset)
+# Data visualization
+featurePlot(x=dataset[,1:12], y=dataset[,13], plot="box")
+# Calculate correlations between predictors
+correlations <- cor(dataset[,1:12])
+# Create correlation plot
+corrplot(correlations, method="circle")
+```
+
+## 5 Model building
+
+Three different models including LDA,  CART, and kNN are built. Repeated cross-validation is used to evaluate the performance of models and select the optimal parameters for each model. 
+
+```{r, eval= FALSE, fig.width = 7, fig.height=7}
+# Run algorithms using 10-fold cross validation, repeated 3 times
+fitControl <- trainControl(method = "repeatedcv",number = 10,repeats = 3)
+metric <- "Accuracy"
+tuneLength <- 20
+# LDA
+set.seed(0);fit.lda  <- train(classe~., data=dataset, preProcess = c("center", "scale"), method="lda", metric=metric, trControl=fitControl, tuneLength = tuneLength)
+# CART
+set.seed(0);fit.cart <- train(classe~., data=dataset, preProcess = c("center", "scale"), method="rpart", metric=metric, trControl=fitControl, tuneLength = tuneLength)
+# kNN
+set.seed(0);fit.knn  <- train(classe~., data=dataset, preProcess = c("center", "scale"), method="knn", metric=metric, trControl=fitControl, tuneLength = tuneLength)
+```
+
+The cross-validation results show that kNN gives the best performace, an average accuracy of 89.6%.
+
+```{r, fig.width = 7, fig.height=7}
+# Compare LDA, CART, and kNN
+results <- resamples(list(lda=fit.lda, cart=fit.cart, knn=fit.knn))
+summary(results)
+dotplot(results)
+# Summarize Best Model
+print(fit.knn)
+plot(fit.knn)
+```
+
+## 6 Model evaluation
+
+The built kNN model is further evaluated on validation dataset, which shows a predication accuracy of 91.5%, close to the estimated result shown in section 5.
+
+```{r}
+# Validate model accuracy using testing data
+validation_pred <- predict(fit.knn, newdata = validation)
+confusionMatrix(validation_pred, validation$classe)
+mean(validation_pred == validation$classe)
+```
+
+## 7 Predict new data with the model
+
+The built kNN model is used to predict the new dataset "pml-testing.csv". The prediction result is given below.
+
+```{r}
+newdata <- read.csv("pml-testing.csv",header = TRUE)
+newdata <- newdata[,var[-13]]
+newdata_pred <- predict(fit.knn, newdata = newdata)
+newdata_pred
+```
